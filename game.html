@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>無限六角四目並べ</title>
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:#0a5f2a;
+}
+canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<script>
+/* =====================
+   Canvas
+===================== */
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+function resize(){
+  cv.width = innerWidth;
+  cv.height = innerHeight;
+}
+addEventListener("resize",resize);
+resize();
+
+/* =====================
+   定数
+===================== */
+const EMPTY=null;
+const BLACK="B";
+const WHITE="W";
+
+/* =====================
+   ゲーム状態
+===================== */
+let board=[];
+let turn=BLACK;
+let gameOver=false;
+let vsCPU=false;
+let cpuColor=null;
+let modeSelect=true;
+let originX = 0;
+
+let view = {
+  size: 50,
+  ox: 0,
+  oy: 0
+};
+
+const hintsBlack = scanBoard(BLACK);
+const hintsWhite = scanBoard(WHITE);
+
+/* =====================
+   初期盤
+===================== */
+function initBoard(){
+  originX = 0;
+  board=[
+    [EMPTY,BLACK],
+    [WHITE,EMPTY]
+  ];
+  gameOver=false;
+}
+
+/* =====================
+   六角近傍
+===================== */
+const DIRS=[
+  [0,-1],[0,1],
+  [-1,0],[1,0],
+  [-1,1],[1,-1]
+];
+
+/* =====================
+   拡張
+===================== */
+function expandIfNeeded(x,y){
+  if(y===0){board.unshift(Array(board[0].length).fill(EMPTY));y++;}
+  if(y===board.length-1){board.push(Array(board[0].length).fill(EMPTY));}
+  if(x===0){board.forEach(r=>r.unshift(EMPTY));originX++;x++;}
+  if(x===board[0].length-1){board.forEach(r=>r.push(EMPTY));}
+  return [x,y];
+}
+
+/* =====================
+   置けるか
+===================== */
+function canPlace(x,y){
+  if(!board[y] || board[y][x] !== EMPTY) return false;
+
+  let cnt = 0;
+  const dirs = getNeighbors(x);
+
+  for (let [dx,dy] of dirs) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (board[ny] && board[ny][nx]) cnt++;
+  }
+
+  return cnt >= 2;
+}
+function getNeighbors(x) {
+  const odd = ((x - originX) & 1) === 1;
+
+  if (!odd) {
+    // 偶数列（上）
+    return [
+      [ 0,-1], [ 0, 1],
+      [-1,-1], [-1, 0],
+      [ 1,-1], [ 1, 0]
+    ];
+  } else {
+    // 奇数列（下）
+    return [
+      [ 0,-1], [ 0, 1],
+      [-1, 0], [-1, 1],
+      [ 1, 0], [ 1, 1]
+    ];
+  }
+}
+
+
+/* =====================
+   勝利
+===================== */
+const LINES=[
+  [[0,-1],[0,1]],
+  [[1,-1],[-1,1]],
+  [[1,0],[-1,0]]
+];
+function countLine(x,y,color, dx,dy){
+  let n = 1;
+
+  for(let i=1;;i++){
+    let nx = x + dx*i, ny = y + dy*i;
+    if(board[ny]?.[nx] !== color) break;
+    n++;
+  }
+  for(let i=1;;i++){
+    let nx = x - dx*i, ny = y - dy*i;
+    if(board[ny]?.[nx] !== color) break;
+    n++;
+  }
+  return n;
+}
+
+
+function isWin(x,y,color){
+  // 縦
+  if (countLineHex(
+    x,y,color,
+    _ => [0,-1],
+    _ => [0, 1]
+  ) >= 4) return true;
+
+  // 右上 ↔ 左下
+  if (countLineHex(
+    x,y,color,
+    dirUpRight,
+    dirDownLeft
+  ) >= 4) return true;
+
+  // 左上 ↔ 右下
+  if (countLineHex(
+    x,y,color,
+    dirUpLeft,
+    dirDownRight
+  ) >= 4) return true;
+
+  return false;
+}
+/*============
+三連or四連
+==*/
+function lineCountAt(x,y,color){
+  return {
+    vertical: countLineHex(x,y,color,
+      _=>[0,-1], _=>[0,1]
+    ),
+    diagR: countLineHex(x,y,color,
+      dirUpRight, dirDownLeft
+    ),
+    diagL: countLineHex(x,y,color,
+      dirUpLeft, dirDownRight
+    )
+  };
+}
+
+function threeWithGapMoves(color){
+  let res = [];
+
+  for(let y=0;y<board.length;y++){
+    for(let x=0;x<board[0].length;x++){
+      if(!canPlace(x,y)) continue;
+
+      board[y][x] = color;
+      const c = lineCountAt(x,y,color);
+      board[y][x] = EMPTY;
+
+      if(
+        c.vertical === 3 ||
+        c.diagR === 3 ||
+        c.diagL === 3
+      ){
+        res.push([x,y]);
+      }
+    }
+  }
+  return res;
+}
+
+
+/* =====================
+   勝利マス
+===================== */
+function winningMoves(color){
+  let res=[];
+  for(let y=0;y<board.length;y++)
+    for(let x=0;x<board[0].length;x++){
+      if(board[y][x]!==EMPTY) continue;
+      board[y][x]=color;
+      if(isWin(x,y,color)) res.push([x,y]);
+      board[y][x]=EMPTY;
+    }
+  return res.filter(([x,y])=>canPlace(x,y));
+}
+
+
+/* =====================
+   CPU
+===================== */
+
+
+function isBadMove(x,y,color){
+  board[y][x]=color;
+
+  // 相手が即勝利できる？
+  if(winningMoves(color===BLACK?WHITE:BLACK).length>0){
+    board[y][x]=EMPTY;
+    return true;
+  }
+
+  board[y][x]=EMPTY;
+  return false;
+}
+
+
+function findForcedWin(color){
+  let forced = [];
+
+  for(let y=0;y<board.length;y++){
+    for(let x=0;x<board[0].length;x++){
+      if(!canPlace(x,y)) continue;
+
+      board[y][x] = color;
+      let next = scanBoard(color);
+      board[y][x] = EMPTY;
+
+      if(next.win.length >= 2){
+        forced.push([x,y]);
+      }
+    }
+  }
+  return forced;
+}
+function cpuMove(){
+  const self = turn;
+  const enemy = (turn===BLACK?WHITE:BLACK);
+
+  // ① 今すぐ勝てるなら勝つ
+  let win = winningMoves(self);
+  if(win.length){
+    place(win[0][0],win[0][1]);
+    return;
+  }
+
+  // ② 相手の即勝利を必ず塞ぐ
+  let block = winningMoves(enemy);
+  if(block.length){
+    place(block[0][0],block[0][1]);
+    return;
+  }
+
+  // ③ 自殺手を除いた合法手を列挙
+  let safe=[];
+  for(let y=0;y<board.length;y++)
+    for(let x=0;x<board[0].length;x++){
+      if(!canPlace(x,y)) continue;
+      if(isBadMove(x,y,self)) continue;
+      safe.push([x,y]);
+    }
+
+  // ④ 自分に「複数の勝利筋」を作れる手
+  for(let [x,y] of safe){
+    board[y][x]=self;
+    if(winningMoves(self).length>=2){
+      board[y][x]=EMPTY;
+      place(x,y);
+      return;
+    }
+    board[y][x]=EMPTY;
+  }
+
+  // ⑤ 安全手があればそれを打つ
+  if(safe.length){
+    let p=safe[Math.floor(Math.random()*safe.length)];
+    place(p[0],p[1]);
+    return;
+  }
+
+  // ⑥ どうしようもなければランダム
+  randomMove();
+}
+
+
+function randomMove(){
+  let moves = [];
+
+  for(let y=0;y<board.length;y++){
+    for(let x=0;x<board[0].length;x++){
+      if(canPlace(x,y)) moves.push([x,y]);
+    }
+  }
+
+  if(moves.length === 0) return;
+
+  let m = moves[Math.floor(Math.random()*moves.length)];
+  place(m[0], m[1]);
+}
+
+
+/* =====================
+   配置
+===================== */
+function place(x,y){
+  [x,y]=expandIfNeeded(x,y);
+  board[y][x]=turn;
+
+  if(isWin(x,y,turn)){
+    gameOver=true;
+    draw();
+    return;
+  }
+
+  turn=turn===BLACK?WHITE:BLACK;
+  draw();
+
+  if(vsCPU && turn===cpuColor){
+    setTimeout(cpuMove,300);
+  }
+}
+
+
+//直線判定システム
+
+function dirUpRight(x){
+  const odd = ((x - originX) & 1);
+  return odd ? [1,0] : [1,-1];
+}
+function dirDownLeft(x){
+  const odd = ((x - originX) & 1);
+  return odd ? [-1,1] : [-1,0];
+}
+function dirUpLeft(x){
+  const odd = ((x - originX) & 1);
+  return odd ? [-1,0] : [-1,-1];
+}
+function dirDownRight(x){
+  const odd = ((x - originX) & 1);
+  return odd ? [1,1] : [1,0];
+}
+
+
+function countLineHex(x,y,color,dirFunc1,dirFunc2){
+  let n = 1;
+
+  let cx = x, cy = y;
+  while (true){
+    const [dx,dy] = dirFunc1(cx);
+    cx += dx; cy += dy;
+    if (board[cy] && board[cy][cx] === color) n++;
+    else break;
+  }
+
+  cx = x; cy = y;
+  while (true){
+    const [dx,dy] = dirFunc2(cx);
+    cx += dx; cy += dy;
+    if (board[cy] && board[cy][cx] === color) n++;
+    else break;
+  }
+
+  return n;
+}
+
+function evaluateMove(x,y,color){
+  board[y][x] = color;
+
+  let lines = [
+    countLine(x,y,color, 1,0),
+    countLine(x,y,color, 0,1),
+    countLine(x,y,color, 1,1),
+    countLine(x,y,color, 1,-1)
+  ];
+
+  board[y][x] = EMPTY;
+
+  return {
+    win: lines.some(n=>n>=4),
+    three: lines.filter(n=>n===3).length
+  };
+}
+
+
+function isMateMove(x,y,color){
+  const ev = evaluateMove(x,y,color);
+  return ev.three >= 2;
+}
+
+//3連かつ空きはあるかな
+function scanBoard(color){
+  let res = {
+    win: [],
+    three: [],
+    mate: []
+  };
+
+  for(let y=0;y<board.length;y++){
+    for(let x=0;x<board[0].length;x++){
+      if(!canPlace(x,y)) continue;
+
+      const ev = evaluateMove(x,y,color);
+
+      if(ev.win) res.win.push([x,y]);
+      else if(ev.three >= 2) res.mate.push([x,y]);
+      else if(ev.three === 1) res.three.push([x,y]);
+    }
+  }
+  return res;
+}
+
+
+/* =====================
+   描画
+===================== */
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle="#040"
+  ctx.font="50px arial black"
+  ctx.fillText(turn,50,50)
+
+  let size=50;
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  board.forEach((r,y)=>r.forEach((v,x)=>{
+    if(v){
+      minX=Math.min(minX,x);
+      maxX=Math.max(maxX,x);
+      minY=Math.min(minY,y);
+      maxY=Math.max(maxY,y);
+    }
+  }));
+
+  let w=maxX-minX+3,h=maxY-minY+3;
+  size=Math.min(cv.width/(w+1),cv.height/(h+1));
+
+  let ox=cv.width/2-(minX+maxX)/2*size;
+  let oy=cv.height/2-(minY+maxY)/2*size;
+
+  for(let y=0;y<board.length;y++)
+    for(let x=0;x<board[0].length;x++){
+      let px=ox+x*size;
+	  let colParity = ((x - originX) & 1);
+	  let py = oy + y * size + colParity * size * 0.5;
+	 
+      if(canPlace(x,y)){
+        ctx.strokeStyle="rgba(255,255,0,0.4)";
+        ctx.beginPath();
+        ctx.arc(px,py,size*0.35,0,Math.PI*2);
+        ctx.stroke();
+      }
+
+      if(board[y][x]){
+        ctx.fillStyle=board[y][x]===BLACK?"black":"white";
+        ctx.beginPath();
+        ctx.arc(px,py,size*0.45,0,Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+		
+
+      }
+
+	  
+    }
+
+  if(gameOver){
+    ctx.fillStyle="red";
+    ctx.font="bold 42px sans-serif";
+    ctx.textAlign="center";
+    ctx.fillText(
+      (turn===BLACK?"黒":"白")+"の勝ち",
+      cv.width/2,cv.height/2
+    );
+    ctx.font="20px sans-serif";
+    ctx.fillText("タップでタイトルへ戻る",
+      cv.width/2,cv.height/2+40);
+  }
+
+  if(modeSelect){
+    ctx.fillStyle="rgba(0,0,0,0.6)";
+    ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle="white";
+    ctx.font="bold 36px sans-serif";
+    ctx.textAlign="center";
+    ctx.fillText("無限六角四目並べ",cv.width/2,cv.height/2-120);
+    ctx.font="22px sans-serif";
+    ["2P","1P 先手","1P 後手","1P ランダム"].forEach((t,i)=>{
+      ctx.fillText(t,cv.width/2,cv.height/2-20+i*40);
+    });
+  }
+  view.size = size;
+  view.ox = ox;
+  view.oy = oy;
+
+}
+
+
+
+
+/* =====================
+   入力
+===================== */
+
+function handleInput(mx, my){
+  /* ===== モード選択 ===== */
+  if (modeSelect) {
+    const baseY = cv.height / 2 - 40;
+    const idx = Math.floor((my - baseY) / 40);
+    if (idx < 0 || idx > 3) return;
+
+    modeSelect = false;
+    initBoard();
+
+    if (idx === 0) {
+      vsCPU = false;
+      turn = BLACK;
+    } else {
+      vsCPU = true;
+      if (idx === 1) { turn = BLACK; cpuColor = WHITE; }
+      if (idx === 2) { turn = WHITE; cpuColor = BLACK; }
+      if (idx === 3) {
+        if (Math.random() < 0.5) {
+          turn = BLACK; cpuColor = WHITE;
+        } else {
+          turn = WHITE; cpuColor = BLACK;
+        }
+      }
+      if (turn === cpuColor) setTimeout(cpuMove, 300);
+    }
+    draw();
+    return;
+  }
+
+  /* ===== 勝利後 ===== */
+  if (gameOver) {
+    modeSelect = true;
+    draw();
+    return;
+  }
+
+  /* ===== CPUターン中 ===== */
+  if (vsCPU && turn === cpuColor) return;
+
+  /* ===== 盤面クリック ===== */
+  for (let y = 0; y < board.length; y++) {
+    for (let x = 0; x < board[0].length; x++) {
+
+      const px = view.ox + x * view.size;
+      const colParity = ((x - originX) & 1);
+      const py = view.oy + y * view.size + colParity * view.size * 0.5;
+
+      if (Math.hypot(mx - px, my - py) > view.size * 0.45) continue;
+      if (!canPlace(x, y)) return;
+
+      place(x, y);
+      return;
+    }
+  }
+}
+
+cv.addEventListener("click", e => {
+  const rect = cv.getBoundingClientRect();
+  handleInput(
+    e.clientX - rect.left,
+    e.clientY - rect.top
+  );
+});
+
+cv.addEventListener("touchstart", e => {
+  e.preventDefault(); // ← 超重要：二重入力防止
+  const rect = cv.getBoundingClientRect();
+  const t = e.touches[0];
+
+  handleInput(
+    t.clientX - rect.left,
+    t.clientY - rect.top
+  );
+}, { passive:false });
+
+
+draw();
+</script>
+</body>
+</html>
