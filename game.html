@@ -614,7 +614,8 @@ cv.addEventListener("touchstart", e => {
 }, { passive:false });
 
 
-draw();
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>
+
