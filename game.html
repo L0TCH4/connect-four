@@ -518,6 +518,7 @@ function draw(){
     ctx.fillStyle="white";
     ctx.font="bold 36px sans-serif";
     ctx.textAlign="center";
+    ctx.fillText("hex4con",cv.width/2,cv.height/2-170);
     ctx.fillText("無限六角四目並べ",cv.width/2,cv.height/2-120);
     ctx.font="22px sans-serif";
     ["2P","1P 先手","1P 後手","1P ランダム"].forEach((t,i)=>{
@@ -618,5 +619,6 @@ requestAnimationFrame(draw);
 </script>
 </body>
 </html>
+
 
 
