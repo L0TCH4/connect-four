@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -13,9 +14,11 @@
             overflow: hidden;
             background: #0a5f2a;
         }
+
         canvas {
             display: block
         }
+
         #ui-layer {
             position: absolute;
             top: 0;
@@ -28,6 +31,7 @@
             justify-content: center;
             align-items: center;
         }
+
         .ui-panel {
             pointer-events: auto;
             background: rgba(0, 0, 0, 0.8);
@@ -37,19 +41,23 @@
             color: white;
             display: none;
         }
+
         .active {
             display: block;
         }
+
         button {
             font-size: 18px;
             margin: 5px;
             padding: 10px 20px;
             cursor: pointer;
         }
+
         input {
             font-size: 18px;
             padding: 5px;
         }
+
         #status-msg {
             position: absolute;
             top: 10px;
@@ -65,9 +73,11 @@
         }
     </style>
 </head>
+
 <body>
     <canvas id="cv"></canvas>
     <div id="status-msg"></div>
+
     <div id="ui-layer">
         <!-- タイトル画面 -->
         <div id="title-screen" class="ui-panel active">
@@ -78,6 +88,7 @@
             <hr>
             <button onclick="showOnlineMenu()">オンライン対戦</button>
         </div>
+
         <!-- オンラインメニュー -->
         <div id="online-menu" class="ui-panel">
             <h2>オンライン対戦</h2>
@@ -88,6 +99,7 @@
             <br>
             <button onclick="backToTitle()">戻る</button>
         </div>
+
         <!-- ホスト待機画面 -->
         <div id="host-wait" class="ui-panel">
             <h2>対戦待ち...</h2>
@@ -96,7 +108,9 @@
             <button onclick="cancelConnection()">キャンセル</button>
         </div>
     </div>
+
     <script>
+
         /* =====================
            Canvas
         ===================== */
@@ -108,12 +122,14 @@
             draw();
         }
         addEventListener("resize", resize);
+
         /* =====================
            State & Constants
         ===================== */
         const EMPTY = null;
         const BLACK = "B";
         const WHITE = "W";
+
         let board = [];
         let turn = BLACK;
         let gameOver = false;
@@ -122,11 +138,14 @@
         let originX = 0;
         let turnCountBlack = 1;
         let turnCountWhite = 1;
+
         let isOnline = false;
         let myColor = null; // Online mode: BLACK or WHITE
         let peer = null;
         let conn = null;
+
         let view = { size: 50, ox: 0, oy: 0 };
+
         /* =====================
            UI Control
         ===================== */
@@ -134,10 +153,12 @@
         const uiOnline = document.getElementById("online-menu");
         const uiHostWait = document.getElementById("host-wait");
         const statusMsg = document.getElementById("status-msg");
+
         function showPanel(panel) {
             [uiTitle, uiOnline, uiHostWait].forEach(p => p.classList.remove("active"));
             if (panel) panel.classList.add("active");
         }
+
         function backToTitle() {
             cancelConnection();
             showPanel(uiTitle);
@@ -145,13 +166,16 @@
             draw();
             statusMsg.style.display = "none";
         }
+
         function showOnlineMenu() {
             showPanel(uiOnline);
         }
+
         function showStatus(msg) {
             statusMsg.innerText = msg;
             statusMsg.style.display = "block";
         }
+
         /* =====================
            Game Start Logic
         ===================== */
@@ -166,46 +190,58 @@
             gameOver = false;
             turn = BLACK;
         }
+
         function startGame(mode) {
             initBoard();
             isOnline = false;
             vsCPU = false;
             cpuColor = null;
+
             if (mode === 'cpu_w') { vsCPU = true; cpuColor = WHITE; } // User is Black
             if (mode === 'cpu_b') { vsCPU = true; cpuColor = BLACK; } // User is White
+
             showPanel(null); // Hide all UI
             resize();
+
             if (vsCPU && turn === cpuColor) setTimeout(cpuMove, 300);
         }
+
         /* =====================
            PeerJS Logic
         ===================== */
         function initPeer() {
             if (peer) return;
             peer = new Peer();
+
             peer.on('open', id => {
                 document.getElementById("my-peer-id").innerText = id;
             });
+
             peer.on('connection', c => {
                 if (conn) { c.close(); return; } // Only 1 connection allowed
                 conn = c;
                 setupConnection();
                 startGameOnline(BLACK); // Host is Black
             });
+
             peer.on('error', err => {
                 console.error(err);
                 alert("通信エラー: " + err.type);
                 backToTitle();
             });
         }
+
         function startHost() {
             initPeer();
             showPanel(uiHostWait);
         }
+
         function startJoin() {
             const destId = document.getElementById("join-id-input").value;
             if (!destId) return alert("IDを入力してください");
+
             if (!peer) peer = new Peer();
+
             peer.on('open', () => {
                 conn = peer.connect(destId);
                 conn.on('open', () => {
@@ -215,6 +251,7 @@
                 conn.on('error', (err) => alert("接続エラー:" + err));
             });
         }
+
         function setupConnection() {
             conn.on('data', data => {
                 if (data.type === 'move') {
@@ -228,17 +265,20 @@
                     place(data.x, data.y, false); // false = do not send back
                 }
             });
+
             conn.on('close', () => {
                 alert("相手が切断しました");
                 backToTitle();
             });
         }
+
         function cancelConnection() {
             if (conn) conn.close();
             if (peer) peer.destroy();
             conn = null;
             peer = null;
         }
+
         function startGameOnline(color) {
             initBoard();
             isOnline = true;
@@ -248,12 +288,16 @@
             resize();
             showStatus(myColor === BLACK ? "あなた: 黒 (先手)" : "あなた: 白 (後手)");
         }
+
         /* =====================
            Game Logic (Modified)
         ===================== */
+
         /* ... (Existing Logic Helpers: expandIfNeeded, canPlace, getNeighbors, isWin, etc.) ... */
         /* NOTE: reusing existing logic, but modified place() */
+
         const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, 1], [1, -1]];
+
         function expandIfNeeded(x, y) {
             if (y === 0) { board.unshift(Array(board[0].length).fill(EMPTY)); y++; }
             if (y === board.length - 1) { board.push(Array(board[0].length).fill(EMPTY)); }
@@ -261,6 +305,7 @@
             if (x === board[0].length - 1) { board.forEach(r => r.push(EMPTY)); }
             return [x, y];
         }
+
         function canPlace(x, y) {
             if (!board[y] || board[y][x] !== EMPTY) return false;
             let cnt = 0;
@@ -272,11 +317,13 @@
             }
             return cnt >= 2;
         }
+
         function getNeighbors(x) {
             const odd = ((x - originX) & 1) === 1;
             if (!odd) return [[0, -1], [0, 1], [-1, -1], [-1, 0], [1, -1], [1, 0]];
             else return [[0, -1], [0, 1], [-1, 0], [-1, 1], [1, 0], [1, 1]];
         }
+
         /* Win Logic ... (Same as original) */
         function countLineHex(x, y, c, d1, d2) {
             let n = 1, cx = x, cy = y;
@@ -289,12 +336,14 @@
         function dirDownLeft(x) { return ((x - originX) & 1) ? [-1, 1] : [-1, 0]; }
         function dirUpLeft(x) { return ((x - originX) & 1) ? [-1, 0] : [-1, -1]; }
         function dirDownRight(x) { return ((x - originX) & 1) ? [1, 1] : [1, 0]; }
+
         function isWin(x, y, color) {
             if (countLineHex(x, y, color, x => [0, -1], x => [0, 1]) >= 4) return true;
             if (countLineHex(x, y, color, dirUpRight, dirDownLeft) >= 4) return true;
             if (countLineHex(x, y, color, dirUpLeft, dirDownRight) >= 4) return true;
             return false;
         }
+
         /* CPU & Helpers */
         function winningMoves(color) {
             let res = [];
@@ -330,11 +379,14 @@
                 board[y][x] = EMPTY;
             }
             if (safe.length) { let p = safe[Math.floor(Math.random() * safe.length)]; place(p[0], p[1]); return; }
+
             // Random fallback
             let moves = [];
             for (let y = 0; y < board.length; y++)for (let x = 0; x < board[0].length; x++) if (canPlace(x, y)) moves.push([x, y]);
             if (moves.length) { let m = moves[Math.floor(Math.random() * moves.length)]; place(m[0], m[1]); }
         }
+
+
         function place(x, y, send = true) {
             // Send data BEFORE expansion changes coords?
             // Actually, if we send the indices, we should send them as they were CLICKED.
@@ -342,31 +394,40 @@
             // If we are Local, we click (x,y). We send (x,y). Logic runs, expands board.
             // If we are Remote, we receive (x,y). We run place(x,y). Logic runs, expands board EXACTLY SAME WAY.
             // Because both start from same board state, result is determinstic.
+
             if (isOnline && send && turn !== myColor) return; // Not my turn
             if (isOnline && send) {
                 if (conn && conn.open) {
                     conn.send({ type: 'move', x: x, y: y });
                 }
             }
+
             [x, y] = expandIfNeeded(x, y);
             board[y][x] = turn;
+
             if (turn == "B") turnCountBlack++;
             else turnCountWhite++;
+
             if (isWin(x, y, turn)) {
                 gameOver = true;
                 draw();
                 if (isOnline) showStatus((turn === myColor ? "あなたの勝ち！" : "あなたの負け..."));
                 return;
             }
+
             turn = (turn === BLACK ? WHITE : BLACK);
+
             if (isOnline) {
                 showStatus(turn === myColor ? "あなたの番です" : "相手の番です");
             }
+
             draw();
+
             if (vsCPU && turn === cpuColor) {
                 setTimeout(cpuMove, 300);
             }
         }
+
         /* =====================
            Input Event
         ===================== */
@@ -376,22 +437,27 @@
                 backToTitle();
                 return;
             }
+
             // If online, can only move if it's my turn
             if (isOnline && turn !== myColor) return;
             // CPU turn block
             if (vsCPU && turn === cpuColor) return;
+
             for (let y = 0; y < board.length; y++) {
                 for (let x = 0; x < board[0].length; x++) {
                     const px = view.ox + x * view.size;
                     const colParity = ((x - originX) & 1);
                     const py = view.oy + y * view.size + colParity * view.size * 0.5;
+
                     if (Math.hypot(mx - px, my - py) > view.size * 0.45) continue;
                     if (!canPlace(x, y)) return; // Valid move?
+
                     place(x, y, true); // True = Initiate move (send if online)
                     return;
                 }
             }
         }
+
         cv.addEventListener("mousedown", e => {
             const r = cv.getBoundingClientRect();
             handleInput(e.clientX - r.left, e.clientY - r.top);
@@ -402,21 +468,26 @@
             const t = e.touches[0];
             handleInput(t.clientX - r.left, t.clientY - r.top);
         }, { passive: false });
+
+
         /* =====================
            Render
         ===================== */
         function draw() {
             ctx.clearRect(0, 0, cv.width, cv.height);
+
             // HUD
             ctx.fillStyle = "#040";
             ctx.font = "bold 20px sans-serif";
             ctx.textAlign = "left";
+
             let txt = (turn === BLACK ? "黒" : "白") + "の手番";
             if (isOnline) {
                 txt += (turn === myColor ? " (あなた)" : " (相手)");
             }
             ctx.fillText(txt, 20, 30);
             ctx.fillText(`黒: ${turnCountBlack} / 白: ${turnCountWhite}`, 20, 60);
+
             // Board Calculation
             let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
             board.forEach((r, y) => r.forEach((v, x) => {
@@ -424,20 +495,26 @@
             }));
             let w = maxX - minX + 3, h = maxY - minY + 3;
             let size = Math.min(cv.width / (w + 1), cv.height / (h + 1), 60); // Max size cap
+
             let ox = cv.width / 2 - (minX + maxX) / 2 * size;
             let oy = cv.height / 2 - (minY + maxY) / 2 * size;
+
             view.size = size; view.ox = ox; view.oy = oy;
+
             ctx.lineWidth = 2;
             for (let y = 0; y < board.length; y++)
                 for (let x = 0; x < board[0].length; x++) {
                     let px = ox + x * size;
                     let colParity = ((x - originX) & 1);
                     let py = oy + y * size + colParity * size * 0.5;
+
                     // Placeable hint
-                    if (canPlace(x, y) && (!isOnline || turn === myColor) && (!vsCPU || turn !== cpuColor)) {
+                    if (canPlace(x, y)) {
                         ctx.strokeStyle = "rgba(255,255,100,0.5)";
                         ctx.beginPath(); ctx.arc(px, py, size * 0.35, 0, Math.PI * 2); ctx.stroke();
                     }
+
+
                     // Stone
                     if (board[y][x]) {
                         ctx.fillStyle = board[y][x] === BLACK ? "black" : "white";
@@ -445,6 +522,7 @@
                         ctx.beginPath(); ctx.arc(px, py, size * 0.45, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                     }
                 }
+
             if (gameOver) {
                 ctx.fillStyle = "rgba(255,0,0,0.8)";
                 ctx.font = "bold 40px sans-serif";
@@ -454,8 +532,10 @@
                 ctx.fillText("画面タップでタイトルへ", cv.width / 2, cv.height / 2 + 50);
             }
         }
+
         // Init
         resize();
     </script>
 </body>
+
 </html>
