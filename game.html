@@ -18,6 +18,13 @@ canvas{display:block}
 <canvas id="cv"></canvas>
 
 <script>
+
+//あんた...ここを見てるってことは…「必勝法」を探そうとしてるんだろ...？
+
+//無駄だぜ...
+
+//作者の私でも必勝できないんだからな...!
+
 /* =====================
    Canvas
 ===================== */
@@ -48,6 +55,9 @@ let cpuColor=null;
 let modeSelect=true;
 let originX = 0;
 
+let turnCountBlack = 1;
+let turnCountWhite = 1;
+
 let view = {
   size: 50,
   ox: 0,
@@ -66,6 +76,8 @@ function initBoard(){
     [EMPTY,BLACK],
     [WHITE,EMPTY]
   ];
+  turnCountBlack = 1;
+  turnCountWhite = 1;
   gameOver=false;
 }
 
@@ -342,7 +354,8 @@ function randomMove(){
 function place(x,y){
   [x,y]=expandIfNeeded(x,y);
   board[y][x]=turn;
-
+  if (turn == "B"){turnCountBlack ++;}
+  if (turn == "W"){turnCountWhite ++;}
   if(isWin(x,y,turn)){
     gameOver=true;
     draw();
@@ -452,9 +465,15 @@ function scanBoard(color){
 ===================== */
 function draw(){
   ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.textAlign="left";
   ctx.fillStyle="#040"
   ctx.font="50px arial black"
-  ctx.fillText(turn,50,50)
+  let turnCount = 1;
+  if (turn == "B"){turnCount = turnCountBlack;}
+  if (turn == "W"){turnCount = turnCountWhite;}
+  ctx.fillText(
+    (turn===BLACK?"黒":"白")+":"+turnCount.toString() + "手目"
+    ,50,50)
 
   let size=50;
   let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
@@ -507,9 +526,14 @@ function draw(){
       (turn===BLACK?"黒":"白")+"の勝ち",
       cv.width/2,cv.height/2
     );
-    ctx.font="20px sans-serif";
+	
+    ctx.font="30px sans-serif";
+    ctx.fillText(
+      "("+(turn===BLACK?turnCountBlack.toString():turnCountWhite.toString())+"手目)",
+      cv.width/2,cv.height/2+50
+    );
     ctx.fillText("タップでタイトルへ戻る",
-      cv.width/2,cv.height/2+40);
+      cv.width/2,cv.height/2+90);
   }
 
   if(modeSelect){
@@ -619,6 +643,3 @@ requestAnimationFrame(draw);
 </script>
 </body>
 </html>
-
-
-
