@@ -93,9 +93,14 @@
         <div id="online-menu" class="ui-panel">
             <h2>オンライン対戦</h2>
             <button onclick="startHost()">ホストになる (部屋を作る)</button><br>
+            <button onclick="startJoin()">ID入力して参加</button><br>
+            <hr>
+            <button onclick="startAutoMatch()">おまかせマッチング</button><br>
             <br>
-            <input type="text" id="join-id-input" placeholder="相手のIDを入力"><br>
-            <button onclick="startJoin()">参加する</button><br>
+            <div id="auto-match-status" style="display:none; color: yellow; font-size:smaller;">検索中...</div>
+            <br>
+            <input type="text" id="join-id-input" placeholder="相手のIDを入力" style="display:none">
+            <button onclick="toggleManualInput()" id="manual-input-btn">ID指定モードへ</button><br>
             <br>
             <button onclick="backToTitle()">戻る</button>
         </div>
@@ -105,6 +110,7 @@
             <h2>対戦待ち...</h2>
             <p>以下のIDを相手に伝えてください</p>
             <h3 id="my-peer-id" style="user-select: text; background: #333; padding: 10px;">取得中...</h3>
+            <p id="room-status-text"></p>
             <button onclick="cancelConnection()">キャンセル</button>
         </div>
     </div>
@@ -144,6 +150,11 @@
         let peer = null;
         let conn = null;
 
+        let autoMatchIndex = 0;
+        const AUTO_ID_PREFIX = "hex4-auto-room-";
+        const AUTO_MAX_ROOMS = 20;
+        let isAutoMatching = false;
+
         let view = { size: 50, ox: 0, oy: 0 };
 
         /* =====================
@@ -153,6 +164,9 @@
         const uiOnline = document.getElementById("online-menu");
         const uiHostWait = document.getElementById("host-wait");
         const statusMsg = document.getElementById("status-msg");
+        const autoMatchStatus = document.getElementById("auto-match-status");
+        const joinInput = document.getElementById("join-id-input");
+        const manualBtn = document.getElementById("manual-input-btn");
 
         function showPanel(panel) {
             [uiTitle, uiOnline, uiHostWait].forEach(p => p.classList.remove("active"));
@@ -165,10 +179,23 @@
             initBoard();
             draw();
             statusMsg.style.display = "none";
+            isAutoMatching = false;
+            autoMatchStatus.style.display = "none";
         }
 
         function showOnlineMenu() {
             showPanel(uiOnline);
+            joinInput.style.display = "none";
+            document.querySelector("button[onclick='startJoin()']").style.display = "none";
+            manualBtn.innerText = "ID指定モードへ";
+        }
+
+        function toggleManualInput() {
+            if (joinInput.style.display === "none") {
+                joinInput.style.display = "inline-block";
+                document.querySelector("button[onclick='startJoin()']").style.display = "inline-block";
+                manualBtn.style.display = "none";
+            }
         }
 
         function showStatus(msg) {
@@ -209,67 +236,169 @@
         /* =====================
            PeerJS Logic
         ===================== */
-        function initPeer() {
-            if (peer) return;
-            peer = new Peer();
+        function initPeer(customId = null) {
+            if (peer) peer.destroy();
+            peer = customId ? new Peer(customId) : new Peer();
 
             peer.on('open', id => {
-                document.getElementById("my-peer-id").innerText = id;
+                console.log("My Peer ID: " + id);
+                if (isAutoMatching && id.startsWith(AUTO_ID_PREFIX)) {
+                    // I successfully became a Host of an auto-room
+                    document.getElementById("my-peer-id").innerText = "ルーム " + id.replace(AUTO_ID_PREFIX, "");
+                    document.getElementById("room-status-text").innerText = "対戦相手を待っています...";
+                    showPanel(uiHostWait);
+                } else {
+                    document.getElementById("my-peer-id").innerText = id;
+                }
             });
 
             peer.on('connection', c => {
-                if (conn) { c.close(); return; } // Only 1 connection allowed
+                if (conn && conn.open) {
+                    // Already connected, reject new connection
+                    c.on('open', () => {
+                        c.send({ type: 'FULL' });
+                        setTimeout(() => c.close(), 500);
+                    });
+                    return;
+                }
                 conn = c;
-                setupConnection();
-                startGameOnline(BLACK); // Host is Black
+                setupConnection(true); // true = I am Host
             });
 
             peer.on('error', err => {
                 console.error(err);
+                if (isAutoMatching) {
+                    if (err.type === 'unavailable-id') {
+                        // ID taken, so this room is occupied. Try to join it instead.
+                        joinAutoRoom();
+                    } else {
+                        // Other error, retry next room
+                        setTimeout(nextAutoMatch, 1000);
+                    }
+                    return;
+                }
                 alert("通信エラー: " + err.type);
                 backToTitle();
             });
         }
 
+        /* === Auto Match Logic === */
+        function startAutoMatch() {
+            isAutoMatching = true;
+            autoMatchIndex = 0;
+            autoMatchStatus.style.display = "block";
+            autoMatchStatus.innerText = "検索開始...";
+            nextAutoMatch();
+        }
+
+        function nextAutoMatch() {
+            if (!isAutoMatching) return;
+            if (autoMatchIndex >= AUTO_MAX_ROOMS) {
+                autoMatchIndex = 0; // Loop or Random? Loop for now.
+            }
+
+            let roomId = AUTO_ID_PREFIX + autoMatchIndex;
+            autoMatchStatus.innerText = `ルーム ${autoMatchIndex} を確認中...`;
+
+            // Strategy: Try to BECOME the host of this room.
+            // If successful -> Wait as Host.
+            // If 'unavailable-id' -> Room exists, so try to JOIN it.
+            initPeer(roomId);
+        }
+
+        function joinAutoRoom() {
+            if (!isAutoMatching) return;
+            let targetId = AUTO_ID_PREFIX + autoMatchIndex;
+
+            // We need an anonymous ID to join
+            if (peer) peer.destroy();
+            peer = new Peer();
+
+            peer.on('open', () => {
+                conn = peer.connect(targetId);
+                // Handling connection logic
+                conn.on('open', () => {
+                    // Success connecting! Wait for Role or Rejection
+                    setupConnection(false);
+                });
+                conn.on('error', err => {
+                    // Connection failed (maybe closed just now), try next
+                    autoMatchIndex++;
+                    nextAutoMatch();
+                });
+                conn.on('close', () => {
+                    // Closed (maybe kicked/full), try next
+                    if (isAutoMatching) {
+                        autoMatchIndex++;
+                        nextAutoMatch();
+                    }
+                });
+            });
+            peer.on('error', err => {
+                // My anonymous peer failed? Retry next.
+                autoMatchIndex++;
+                nextAutoMatch();
+            });
+        }
+
+
+        /* === Manual Logic === */
+
         function startHost() {
+            isAutoMatching = false;
             initPeer();
             showPanel(uiHostWait);
+            document.getElementById("room-status-text").innerText = "";
         }
 
         function startJoin() {
+            isAutoMatching = false;
             const destId = document.getElementById("join-id-input").value;
             if (!destId) return alert("IDを入力してください");
 
-            if (!peer) peer = new Peer();
+            if (peer) peer.destroy();
+            peer = new Peer();
 
             peer.on('open', () => {
                 conn = peer.connect(destId);
                 conn.on('open', () => {
-                    setupConnection();
-                    startGameOnline(WHITE); // Guest is White
+                    setupConnection(false);
                 });
                 conn.on('error', (err) => alert("接続エラー:" + err));
             });
         }
 
-        function setupConnection() {
+        function setupConnection(amIHost) {
             conn.on('data', data => {
+                if (data.type === 'FULL') {
+                    conn.close();
+                    if (isAutoMatching) {
+                        autoMatchIndex++;
+                        nextAutoMatch();
+                    } else {
+                        alert("満員でした");
+                        backToTitle();
+                    }
+                    return;
+                }
                 if (data.type === 'move') {
-                    // Opponent moved
-                    // We assume correct sync for now.
-                    // Remote move:
-                    // The passed X, Y are the *logical* coordinates in the array BEFORE expansion?
-                    // No, let's just send the array index (x,y) that was clicked.
-                    // Since both simulations are deterministic, applying place(x,y) should result in same state.
-                    // However, we must ensure we are not blocking input during opponent turn locally.
-                    place(data.x, data.y, false); // false = do not send back
+                    place(data.x, data.y, false);
                 }
             });
 
             conn.on('close', () => {
-                alert("相手が切断しました");
+                if (!gameOver && !isAutoMatching) alert("相手が切断しました");
                 backToTitle();
             });
+
+            // Connection Established!
+            if (isAutoMatching) autoMatchStatus.style.display = "none";
+
+            if (amIHost) {
+                startGameOnline(BLACK);
+            } else {
+                startGameOnline(WHITE);
+            }
         }
 
         function cancelConnection() {
@@ -277,6 +406,7 @@
             if (peer) peer.destroy();
             conn = null;
             peer = null;
+            isAutoMatching = false;
         }
 
         function startGameOnline(color) {
@@ -287,6 +417,10 @@
             showPanel(null);
             resize();
             showStatus(myColor === BLACK ? "あなた: 黒 (先手)" : "あなた: 白 (後手)");
+
+            if (vsCPU && turn === cpuColor) {
+                setTimeout(cpuMove, 300);
+            }
         }
 
         /* =====================
